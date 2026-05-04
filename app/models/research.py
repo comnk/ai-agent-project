@@ -1,9 +1,12 @@
 from pydantic import BaseModel
-from .source import Source
 
 class ResearchRequest(BaseModel):
     query: str
 
 class ResearchResponse(BaseModel):
     answer: str
-    sources: list[Source]
+    research_results: list[dict]
+    all_sources: list[str]
+    session_id: str
+
+    model_config = {"extra": "ignore"}
