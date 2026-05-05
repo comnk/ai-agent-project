@@ -7,7 +7,7 @@ from routers.routes import router
 
 load_dotenv()
  
-for key in ("TAVILY_API_KEY", "GOOGLE_API_KEY"):
+for key in ("TAVILY_API_KEY", "GOOGLE_API_KEY", "CHROMA_DB_KEY"):
     if not os.getenv(key):
         raise RuntimeError(f"{key} not set in environment")
 
