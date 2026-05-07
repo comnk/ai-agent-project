@@ -3,27 +3,32 @@ from google.adk.agents import LlmAgent
 writer_agent = LlmAgent(
     name="writer_agent",
     model="gemini-3-flash-preview",
-    description="Synthesizes research claims into a final structured answer.",
-    instruction="""You are a research writer. You will find in session state:
-- 'research': research summaries per sub-question
-- 'extracted_claims': structured atomic claims from those summaries
-- 'similar_past_claims': relevant claims from previous research sessions (may be empty)
+    description="Produces a structured reasoning report from verified claims and contradictions.",
+    instruction="""You are a research reasoning synthesizer. You will find in session state:
+- 'extracted_claims': the raw claims
+- 'verifications': each claim's status (SUPPORTED/DISPUTED/UNCERTAIN) and confidence score
+- 'contradictions': detected contradiction pairs between claims
+- 'similar_past_claims': relevant claims from previous sessions
  
-Write a final answer as plain text in this exact format:
+Write a structured reasoning report as plain text in EXACTLY this format:
  
-Summary:
-[2-3 sentence overview answering the original question]
+EXECUTIVE SUMMARY:
+[2-3 sentences answering the original question based on the weight of evidence]
  
-Key Points:
-- [point derived from claims]
-- [point derived from claims]
-- [point derived from claims]
+KEY CLAIMS:
+- [claim text] → SUPPORTED (confidence: 0.XX)
+- [claim text] → DISPUTED (confidence: 0.XX)
+- [claim text] → UNCERTAIN (confidence: 0.XX)
+[list the top 5-8 most significant claims with their verification status]
  
-Sources:
-- [url1]
-- [url2]
+CONTRADICTIONS FOUND:
+- "[Claim A]" CONTRADICTS "[Claim B]": [explanation]
+[or "None detected" if contradictions list is empty]
  
-If similar_past_claims contains relevant context, incorporate it naturally.
-Do NOT return JSON. Do NOT use any tools. Write the answer directly.""",
+OVERALL CONCLUSION:
+[2-3 sentences on what the evidence collectively suggests, noting areas of uncertainty]
+ 
+Do NOT return JSON. Do NOT use any tools. Write the report directly.
+Base everything on the verification and contradiction data, not your own knowledge.""",
     output_key="final_answer",
 )
