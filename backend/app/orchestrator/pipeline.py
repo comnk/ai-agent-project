@@ -1,4 +1,6 @@
-import json, uuid
+import asyncio, json, uuid
+
+from datetime import datetime, timezone
 
 from google.adk.agents import SequentialAgent
 from google.adk.sessions import InMemorySessionService
@@ -13,6 +15,10 @@ from agents.verification import verification_agent
 from agents.contradiction import contradiction_agent
 
 from ml.ml_service import enhance_verifications, ml_filter_contradictions
+
+from services.search import search
+from services.scraper import scrape_many
+from services.deduplication import deduplicate_claims
 
 from storage.store_claims import add_claims, query_similar_claims
 
@@ -31,8 +37,9 @@ research_pipeline = SequentialAgent(
 
 session_service = InMemorySessionService()
 
+def now(): return datetime.now(timezone.utc).isoformat()
+
 def parse_json_state(raw) -> dict:
-    """Safely parse a state value that may be a string or already a dict."""
     if isinstance(raw, dict):
         return raw
     try:
@@ -40,14 +47,32 @@ def parse_json_state(raw) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {}
 
-async def run_pipeline(query: str) -> dict:
-    """Runs the research pipeline on the given query and returns the final answer."""
-    session_id = str(uuid.uuid4())
+async def parallel_search_prefetch(questions: list[str]) -> dict:
+    search_results = await asyncio.gather(
+        *[asyncio.to_thread(search, q) for q in questions],
+        return_exceptions=True,
+    )
  
+    all_urls = []
+    seen_urls = set()
+    for result in search_results:
+        if isinstance(result, list):
+            for r in result:
+                url = r.get("url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_urls.append(url)
+ 
+    scrape_cache = await scrape_many(all_urls)
+    return scrape_cache
+ 
+ 
+async def run_pipeline(query: str) -> dict:
+    session_id = str(uuid.uuid4())
     similar_claims = query_similar_claims(query, n_results=5)
  
     await session_service.create_session(
-        app_name="research_app",
+        app_name="research_pipeline",
         user_id="api_user",
         session_id=session_id,
         state={"similar_past_claims": similar_claims},
@@ -55,7 +80,7 @@ async def run_pipeline(query: str) -> dict:
  
     runner = Runner(
         agent=research_pipeline,
-        app_name="research_app",
+        app_name="research_pipeline",
         session_service=session_service,
     )
  
@@ -69,12 +94,12 @@ async def run_pipeline(query: str) -> dict:
         pass
  
     final_session = await session_service.get_session(
-        app_name="research_app",
+        app_name="research_pipeline",
         user_id="api_user",
         session_id=session_id,
     )
     state = final_session.state
- 
+
     research_results = parse_json_state(state.get("research", {})).get("research_results", [])
     extracted_claims = parse_json_state(state.get("extracted_claims", {})).get("claims", [])
     verifications = parse_json_state(state.get("verifications", {})).get("verifications", [])
@@ -82,22 +107,87 @@ async def run_pipeline(query: str) -> dict:
     contradictions = contradictions_data.get("contradictions", [])
     topic_clusters = contradictions_data.get("topic_clusters", {})
  
+    execution_trace = [
+        {
+            "agent": "planner_agent",
+            "action": "sub_questions_created",
+            "details": {"count": len(research_results), "questions": [r["question"] for r in research_results]},
+            "timestamp": now(),
+        },
+        {
+            "agent": "research_agent",
+            "action": "sources_gathered",
+            "details": {"source_count": len(set(url for r in research_results for url in r.get("sources", []))), "sub_questions": len(research_results)},
+            "timestamp": now(),
+        },
+        {
+            "agent": "claim_extractor_agent",
+            "action": "claims_extracted",
+            "details": {"claim_count": len(extracted_claims), "topics": list({c.get("topic") for c in extracted_claims})},
+            "timestamp": now(),
+        },
+        {
+            "agent": "verification_agent",
+            "action": "claims_verified",
+            "details": {
+                "supported": sum(1 for v in verifications if v.get("status") == "SUPPORTED"),
+                "disputed": sum(1 for v in verifications if v.get("status") == "DISPUTED"),
+                "uncertain": sum(1 for v in verifications if v.get("status") == "UNCERTAIN"),
+            },
+            "timestamp": now(),
+        },
+        {
+            "agent": "contradiction_agent",
+            "action": "contradictions_detected",
+            "details": {
+                "total_relationships": len(contradictions),
+                "conflicts": sum(1 for c in contradictions if c.get("relation") == "CONTRADICTS"),
+                "topic_clusters": len(topic_clusters),
+            },
+            "timestamp": now(),
+        },
+    ]
+
     if verifications and extracted_claims:
         verifications = enhance_verifications(verifications, extracted_claims)
-
+ 
     ml_candidate_pairs = []
     if extracted_claims:
         pairs = ml_filter_contradictions(extracted_claims)
         ml_candidate_pairs = [
-            {
-                "claim_a": p[0].get("claim"),
-                "claim_b": p[1].get("claim"),
-                "similarity": p[2],
-            }
+            {"claim_a": p[0].get("claim"), "claim_b": p[1].get("claim"), "similarity": p[2]}
             for p in pairs
         ]
  
+    execution_trace.append({
+        "agent": "ml_layer",
+        "action": "stance_analysis_complete",
+        "details": {
+            "claims_analyzed": len(verifications),
+            "candidate_pairs_filtered": len(ml_candidate_pairs),
+            "avg_ml_confidence": round(
+                sum(v.get("ml_stance_confidence", 0) for v in verifications) / len(verifications), 3
+            ) if verifications else 0.0,
+        },
+        "timestamp": now(),
+    })
+ 
+    original_count = len(extracted_claims)
+    extracted_claims = deduplicate_claims(extracted_claims)
+    duplicates_removed = original_count - len(extracted_claims)
+ 
     stored_ids = add_claims(extracted_claims, task_id=session_id) if extracted_claims else []
+ 
+    execution_trace.append({
+        "agent": "writer_agent",
+        "action": "report_generated",
+        "details": {
+            "claims_stored": len(stored_ids),
+            "duplicates_removed": duplicates_removed,
+            "session_id": session_id,
+        },
+        "timestamp": now(),
+    })
  
     seen = set()
     all_sources = []
@@ -117,7 +207,7 @@ async def run_pipeline(query: str) -> dict:
         round(sum(v.get("confidence", 0) for v in verifications) / len(verifications), 3)
         if verifications else 0.0
     )
-    
+ 
     stance_counts = {"SUPPORTS": 0, "OPPOSES": 0, "NEUTRAL": 0}
     for v in verifications:
         stance = v.get("ml_stance", "NEUTRAL")
@@ -125,6 +215,7 @@ async def run_pipeline(query: str) -> dict:
  
     return {
         "answer": state.get("final_answer", "No answer generated."),
+        "execution_trace": execution_trace,
         "research_results": research_results,
         "extracted_claims": extracted_claims,
         "verifications": verifications,

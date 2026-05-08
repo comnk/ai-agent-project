@@ -40,8 +40,16 @@ export interface VerificationSummary {
   };
 }
 
+export interface TraceEvent {
+  agent: string;
+  action: string;
+  details: Record<string, any>;
+  timestamp: string;
+}
+
 export interface ResearchResponse {
   answer: string;
+  execution_trace: TraceEvent[];
   research_results: ResearchResult[];
   extracted_claims: any[];
   verifications: Verification[];
