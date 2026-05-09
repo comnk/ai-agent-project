@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
-from models.research import ResearchRequest, ResearchResponse
-from orchestrator.pipeline import run_pipeline
-from storage.store_claims import get_all_claims, query_similar_claims
+from app.models.research import ResearchRequest, ResearchResponse
+from app.orchestrator.pipeline import run_pipeline
+from app.storage.store_claims import get_all_claims, query_similar_claims
 
 router = APIRouter()
 

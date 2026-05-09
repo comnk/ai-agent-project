@@ -1,4 +1,4 @@
-from ml.similarity import score_similarity
+from app.ml.similarity import score_similarity
 
 DEDUP_THRESHOLD = 0.92
 

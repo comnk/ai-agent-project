@@ -1,5 +1,5 @@
-from ml.stance_classifier import predict_stance_batch
-from ml.similarity import score_similarity, filter_claim_pairs, SIMILARITY_THRESHOLD
+from app.ml.stance_classifier import predict_stance_batch
+from app.ml.similarity import score_similarity, filter_claim_pairs, SIMILARITY_THRESHOLD
 
 def enhance_verifications(
     verifications: list[dict],

@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ml.similarity import score_similarity
-from ml.stance_classifier import predict_stance
+from app.ml.similarity import score_similarity
+from app.ml.stance_classifier import predict_stance
 
 ml_router = APIRouter(prefix="/ml", tags=["ml"])
 

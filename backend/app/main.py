@@ -3,8 +3,8 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from routers.routes import router
-from routers.ml import ml_router
+from app.routers.routes import router
+from app.routers.ml import ml_router
 
 from fastapi.middleware.cors import CORSMiddleware
 

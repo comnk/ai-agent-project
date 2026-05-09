@@ -1,7 +1,7 @@
 from google.adk.agents import LlmAgent
 
-from services.search import search
-from services.scraper import scrape
+from app.services.search import search
+from app.services.scraper import scrape
 
 def search_and_scrape(question: str) -> dict:
     results = search(question)

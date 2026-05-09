@@ -7,20 +7,20 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.runners import Runner
 from google.genai import types
 
-from agents.planner import planner_agent
-from agents.research import research_agent
-from agents.writer import writer_agent
-from agents.claim_extractor import claim_extractor_agent
-from agents.verification import verification_agent
-from agents.contradiction import contradiction_agent
+from app.agents.planner import planner_agent
+from app.agents.research import research_agent
+from app.agents.writer import writer_agent
+from app.agents.claim_extractor import claim_extractor_agent
+from app.agents.verification import verification_agent
+from app.agents.contradiction import contradiction_agent
 
-from ml.ml_service import enhance_verifications, ml_filter_contradictions
+from app.ml.ml_service import enhance_verifications, ml_filter_contradictions
 
-from services.search import search
-from services.scraper import scrape_many
-from services.deduplication import deduplicate_claims
+from app.services.search import search
+from app.services.scraper import scrape_many
+from app.services.deduplication import deduplicate_claims
 
-from storage.store_claims import add_claims, query_similar_claims
+from app.storage.store_claims import add_claims, query_similar_claims
 
 research_pipeline = SequentialAgent(
     name="ResearchPipeline",
