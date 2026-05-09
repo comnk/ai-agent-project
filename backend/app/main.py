@@ -21,7 +21,7 @@ app.include_router(ml_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "https://veritas-beige-chi.vercel.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
