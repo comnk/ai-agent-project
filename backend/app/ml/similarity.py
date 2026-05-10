@@ -1,15 +1,15 @@
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-_model = None
-SIMILARITY_THRESHOLD = 0.45
+model = None
+SIMILARITY_THRESHOLD = 0.5
 
 
 def _get_model() -> SentenceTransformer:
-    global _model
-    if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-    return _model
+    global model
+    if model is None:
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+    return model
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -17,10 +17,6 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def score_similarity(text_a: str, text_b: str) -> float:
-    """
-    Compute cosine similarity between two texts.
-    Returns 0.0-1.0, where 1.0 = identical meaning.
-    """
     model = _get_model()
     embeddings = model.encode([text_a, text_b], normalize_embeddings=True)
     return round(cosine_similarity(embeddings[0], embeddings[1]), 3)
