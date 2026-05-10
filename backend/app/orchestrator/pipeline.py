@@ -12,7 +12,7 @@ from app.agents.research import research_agent
 from app.agents.claim_extractor import claim_extractor_agent
 from app.agents.verification import verification_agent
 from app.agents.contradiction import contradiction_agent
-from agents.writer import writer_agent
+from app.agents.writer import writer_agent
 from app.storage.store_claims import add_claims, query_similar_claims
 from app.ml.ml_service import enhance_verifications, ml_filter_contradictions
 from app.services.deduplication import deduplicate_claims
