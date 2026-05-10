@@ -1,6 +1,6 @@
-import asyncio, json, uuid
-
-from datetime import datetime, timezone
+import asyncio
+import json
+import uuid
 
 from google.adk.agents import SequentialAgent
 from google.adk.sessions import InMemorySessionService
@@ -9,22 +9,17 @@ from google.genai import types
 
 from app.agents.planner import planner_agent
 from app.agents.research import research_agent
-from app.agents.writer import writer_agent
 from app.agents.claim_extractor import claim_extractor_agent
 from app.agents.verification import verification_agent
 from app.agents.contradiction import contradiction_agent
-
+from agents.writer import writer_agent
+from app.storage.store_claims import add_claims, query_similar_claims
 from app.ml.ml_service import enhance_verifications, ml_filter_contradictions
-
-from app.services.search import search
-from app.services.scraper import scrape_many
 from app.services.deduplication import deduplicate_claims
 
-from app.storage.store_claims import add_claims, query_similar_claims
-
 research_pipeline = SequentialAgent(
-    name="ResearchPipeline",
-    description="Full research pipeline: plan sub-questions, research each, extract claims, verify them, detect contradictions, and write final answer",
+    name="research_pipeline",
+    description="Full research pipeline with verification and contradiction detection.",
     sub_agents=[
         planner_agent,
         research_agent,
@@ -36,8 +31,8 @@ research_pipeline = SequentialAgent(
 )
 
 session_service = InMemorySessionService()
+APP_NAME = "research_app"
 
-def now(): return datetime.now(timezone.utc).isoformat()
 
 def parse_json_state(raw) -> dict:
     if isinstance(raw, dict):
@@ -47,43 +42,36 @@ def parse_json_state(raw) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {}
 
-async def parallel_search_prefetch(questions: list[str]) -> dict:
-    search_results = await asyncio.gather(
-        *[asyncio.to_thread(search, q) for q in questions],
-        return_exceptions=True,
-    )
- 
-    all_urls = []
-    seen_urls = set()
-    for result in search_results:
-        if isinstance(result, list):
-            for r in result:
-                url = r.get("url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_urls.append(url)
- 
-    scrape_cache = await scrape_many(all_urls)
-    return scrape_cache
- 
- 
+
 async def run_pipeline(query: str) -> dict:
     session_id = str(uuid.uuid4())
-    similar_claims = query_similar_claims(query, n_results=5)
- 
+
+    similar_claims_raw = await asyncio.to_thread(query_similar_claims, query, 3)
+
+    similar_claims = [
+        {
+            "claim": c.get("claim", ""),
+            "topic": c.get("topic", ""),
+            "source_url": c.get("source_url", ""),
+            "similarity": c.get("similarity", 0),
+            "claim_type": c.get("claim_type", ""),
+        }
+        for c in similar_claims_raw
+    ]
+
     await session_service.create_session(
-        app_name="research_pipeline",
+        app_name=APP_NAME,
         user_id="api_user",
         session_id=session_id,
         state={"similar_past_claims": similar_claims},
     )
- 
+
     runner = Runner(
         agent=research_pipeline,
-        app_name="research_pipeline",
+        app_name=APP_NAME,
         session_service=session_service,
     )
- 
+
     async for event in runner.run_async(
         user_id="api_user",
         session_id=session_id,
@@ -92,9 +80,9 @@ async def run_pipeline(query: str) -> dict:
         ),
     ):
         pass
- 
+
     final_session = await session_service.get_session(
-        app_name="research_pipeline",
+        app_name=APP_NAME,
         user_id="api_user",
         session_id=session_id,
     )
@@ -106,7 +94,10 @@ async def run_pipeline(query: str) -> dict:
     contradictions_data = parse_json_state(state.get("contradictions", {}))
     contradictions = contradictions_data.get("contradictions", [])
     topic_clusters = contradictions_data.get("topic_clusters", {})
- 
+
+    from datetime import datetime, timezone
+    def now(): return datetime.now(timezone.utc).isoformat()
+
     execution_trace = [
         {
             "agent": "planner_agent",
@@ -148,9 +139,17 @@ async def run_pipeline(query: str) -> dict:
         },
     ]
 
+    original_count = len(extracted_claims)
+    extracted_claims = deduplicate_claims(extracted_claims)
+
+    extracted_claims = extracted_claims[:12]
+    duplicates_removed = original_count - len(extracted_claims)
+
     if verifications and extracted_claims:
+        dedup_texts = {c["claim"] for c in extracted_claims}
+        verifications = [v for v in verifications if v.get("claim") in dedup_texts]
         verifications = enhance_verifications(verifications, extracted_claims)
- 
+
     ml_candidate_pairs = []
     if extracted_claims:
         pairs = ml_filter_contradictions(extracted_claims)
@@ -158,7 +157,7 @@ async def run_pipeline(query: str) -> dict:
             {"claim_a": p[0].get("claim"), "claim_b": p[1].get("claim"), "similarity": p[2]}
             for p in pairs
         ]
- 
+
     execution_trace.append({
         "agent": "ml_layer",
         "action": "stance_analysis_complete",
@@ -171,13 +170,9 @@ async def run_pipeline(query: str) -> dict:
         },
         "timestamp": now(),
     })
- 
-    original_count = len(extracted_claims)
-    extracted_claims = deduplicate_claims(extracted_claims)
-    duplicates_removed = original_count - len(extracted_claims)
- 
+
     stored_ids = add_claims(extracted_claims, task_id=session_id) if extracted_claims else []
- 
+
     execution_trace.append({
         "agent": "writer_agent",
         "action": "report_generated",
@@ -188,7 +183,7 @@ async def run_pipeline(query: str) -> dict:
         },
         "timestamp": now(),
     })
- 
+
     seen = set()
     all_sources = []
     for r in research_results:
@@ -196,23 +191,23 @@ async def run_pipeline(query: str) -> dict:
             if url not in seen:
                 seen.add(url)
                 all_sources.append(url)
- 
+
     status_counts = {"SUPPORTED": 0, "DISPUTED": 0, "UNCERTAIN": 0}
     for v in verifications:
         status_counts[v.get("status", "UNCERTAIN")] = (
             status_counts.get(v.get("status", "UNCERTAIN"), 0) + 1
         )
- 
+
     avg_confidence = (
         round(sum(v.get("confidence", 0) for v in verifications) / len(verifications), 3)
         if verifications else 0.0
     )
- 
+
     stance_counts = {"SUPPORTS": 0, "OPPOSES": 0, "NEUTRAL": 0}
     for v in verifications:
         stance = v.get("ml_stance", "NEUTRAL")
         stance_counts[stance] = stance_counts.get(stance, 0) + 1
- 
+
     return {
         "answer": state.get("final_answer", "No answer generated."),
         "execution_trace": execution_trace,
@@ -229,7 +224,7 @@ async def run_pipeline(query: str) -> dict:
             "ml_stance_counts": stance_counts,
         },
         "claims_stored": len(stored_ids),
-        "similar_past_claims": similar_claims,
+        "similar_past_claims": similar_claims_raw,
         "all_sources": all_sources,
         "session_id": session_id,
     }
