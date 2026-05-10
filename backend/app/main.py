@@ -16,15 +16,20 @@ for key in ("TAVILY_API_KEY", "GOOGLE_API_KEY", "CHROMA_DB_KEY"):
 
 
 app = FastAPI(title="Research API - Week 1 MVP")
-app.include_router(router)
-app.include_router(ml_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://veritas-beige-chi.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://veritas-beige-chi.vercel.app"
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(router)
+app.include_router(ml_router)
 
 @app.get("/health")
 def health_check():
