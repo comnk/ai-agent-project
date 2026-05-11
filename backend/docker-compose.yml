@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: .
+    container_name: research_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./chroma_data:/app/chroma_data
+      - ./ml_cache:/app/ml_cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

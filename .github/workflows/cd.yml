@@ -1,0 +1,38 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs: []
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/veritas
+
+            echo "Pulling latest code..."
+            git pull origin main
+
+            cd backend
+
+            echo "Rebuilding container..."
+            docker compose down
+            docker compose build --no-cache
+            docker compose up -d
+
+            echo "Waiting for health check..."
+            sleep 15
+            curl -f http://localhost:8000/health || exit 1
+
+            echo "Deploy complete."
